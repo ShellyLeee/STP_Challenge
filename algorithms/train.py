@@ -9,6 +9,7 @@ import argparse
 import yaml
 import json
 import shutil
+import logging
 from datetime import datetime
 import numpy as np
 import torch
@@ -31,6 +32,38 @@ from utils.metrics import predict_full_image, compute_correlations, print_correl
 from utils.visualization import plot_training_history, plot_correlation_bar
 
 
+def setup_logging(run_dir, log_level=logging.INFO):
+    """Setup logging to both file and console."""
+    log_file = os.path.join(run_dir, "training.log")
+    
+    # Create logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(log_level)
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # Create formatters
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # File handler
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(log_level)
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(log_level)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    
+    return logger
+
+
 def set_seed(seed: int):
     """Set random seed for reproducibility."""
     random.seed(seed)
@@ -42,16 +75,18 @@ def set_seed(seed: int):
 class EarlyStopping:
     """Early stopping to stop training when validation loss doesn't improve."""
     
-    def __init__(self, patience=10, min_delta=1e-5, verbose=True):
+    def __init__(self, patience=10, min_delta=1e-5, verbose=True, logger=None):
         """
         Args:
             patience: Number of epochs to wait for improvement
             min_delta: Minimum change to qualify as an improvement
-            verbose: Whether to print early stopping messages
+            verbose: Whether to log early stopping messages
+            logger: Logger instance
         """
         self.patience = patience
         self.min_delta = min_delta
         self.verbose = verbose
+        self.logger = logger
         self.counter = 0
         self.best_loss = None
         self.early_stop = False
@@ -65,8 +100,8 @@ class EarlyStopping:
             self.best_loss = val_loss
         elif val_loss > self.best_loss - self.min_delta:
             self.counter += 1
-            if self.verbose:
-                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.verbose and self.logger:
+                self.logger.debug(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -89,7 +124,7 @@ def train_one_epoch(
     total_loss = 0.0
     total_count = 0
     
-    pbar = tqdm(train_loader, desc=f"[Train] Epoch {epoch:02d}")
+    pbar = tqdm(train_loader, desc=f"[Train] Epoch {epoch:02d}", leave=False)
     
     for batch in pbar:
         x = batch["x"].to(device)
@@ -128,7 +163,7 @@ def validate(
     total_loss = 0.0
     total_count = 0
     
-    pbar = tqdm(val_loader, desc=f"[Val]   Epoch {epoch:02d}")
+    pbar = tqdm(val_loader, desc=f"[Val]   Epoch {epoch:02d}", leave=False)
     
     for batch in pbar:
         x = batch["x"].to(device)
@@ -158,6 +193,9 @@ def main(args):
     run_dir = os.path.join("results", run_name)
     os.makedirs(run_dir, exist_ok=True)
     
+    # Setup logging
+    logger = setup_logging(run_dir)
+    
     # Create subdirectories
     checkpoint_dir = os.path.join(run_dir, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -165,48 +203,51 @@ def main(args):
     # Save config to run directory
     config_save_path = os.path.join(run_dir, "config.yaml")
     shutil.copy(args.config, config_save_path)
-    print(f"Config saved to: {config_save_path}")
+    logger.info(f"Config saved to: {config_save_path}")
     
     # Set seed
     set_seed(config['random_seed'])
     
     # Set device
     device = config['device']
-    print(f"Using device: {device}")
-    print(f"Run directory: {run_dir}")
+    logger.info(f"Using device: {device}")
+    logger.info(f"Run directory: {run_dir}")
     
-    print("\n" + "="*60)
-    print("STEP 1: Loading and preprocessing data")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 1: Loading and preprocessing data")
+    logger.info("="*60)
     
     # Load data
-    rna_proc, pro_proc, rna, pro = load_and_preprocess_data(config)
+    rna_proc, pro_proc, rna, pro = load_and_preprocess_data(config, logger=logger)
     
     # Create spatial split
     rows, cols, split_grid_train, split_grid_val, cutoff = create_spatial_split(
         rna,
         config['data']['grid_h'],
         config['data']['grid_w'],
-        config['data']['split_ratio']
+        config['data']['split_ratio'],
+        logger=logger
     )
     
     # Apply dimensionality reduction
     Z_all = apply_dimensionality_reduction(
         rna_proc, rows, cutoff,
         config['preprocessing']['k_pca'],
-        config['random_seed']
+        config['random_seed'],
+        logger=logger
     )
     
     # Rasterize data
     img_in, img_out, mask_tissue = rasterize_data(
         rows, cols, Z_all, pro_proc.X, rna,
         config['data']['grid_h'],
-        config['data']['grid_w']
+        config['data']['grid_w'],
+        logger=logger
     )
     
-    print("\n" + "="*60)
-    print("STEP 2: Creating dataloaders")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 2: Creating dataloaders")
+    logger.info("="*60)
     
     train_loader, val_loader = create_dataloaders(
         img_in, img_out, mask_tissue,
@@ -214,11 +255,11 @@ def main(args):
         config
     )
     
-    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    logger.info(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
     
-    print("\n" + "="*60)
-    print("STEP 3: Creating model")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 3: Creating model")
+    logger.info("="*60)
     
     C_in = Z_all.shape[1]
     C_out = pro_proc.X.shape[1]
@@ -229,7 +270,7 @@ def main(args):
         base=config['model']['base_channels']
     ).to(device)
     
-    print(f"Model parameters: {model.count_parameters():,}")
+    logger.info(f"Model parameters: {model.count_parameters():,}")
     
     # Loss function
     criterion = get_loss_function(config)
@@ -251,23 +292,26 @@ def main(args):
     
     # Early stopping
     early_stopping = EarlyStopping(
-        patience=config['training'].get('early_stopping_patience', 10),
-        min_delta=config['training'].get('early_stopping_min_delta', 1e-5),
-        verbose=True
+        patience=int(config['training'].get('early_stopping_patience', 10)),
+        min_delta=float(config['training'].get('early_stopping_min_delta', 1e-5)),
+        verbose=True,
+        logger=logger
     )
     
-    print("\n" + "="*60)
-    print("STEP 4: Training")
-    print("="*60)
-    print(f"Early stopping: patience={early_stopping.patience}, "
-          f"min_delta={early_stopping.min_delta}")
+    logger.info("="*60)
+    logger.info("STEP 4: Training")
+    logger.info("="*60)
+    logger.info(f"Early stopping: patience={early_stopping.patience}, min_delta={early_stopping.min_delta}")
     
     best_val_loss = float('inf')
     train_losses = []
     val_losses = []
     stopped_epoch = None
     
-    for epoch in range(1, config['training']['epochs'] + 1):
+    # Main training loop with progress bar
+    epoch_pbar = tqdm(range(1, config['training']['epochs'] + 1), desc="Training Progress", unit="epoch")
+    
+    for epoch in epoch_pbar:
         epoch_start = time.time()
         
         # Train
@@ -282,12 +326,13 @@ def main(args):
         
         epoch_time = time.time() - epoch_start
         
-        # Log
-        print(f"Epoch {epoch:02d} | time={epoch_time:.1f}s | "
-              f"train_loss={train_loss:.5f} | val_loss={val_loss:.5f}")
-        
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        
+        # Update progress bar description
+        epoch_pbar.set_description(
+            f"Training Progress | train_loss={train_loss:.5f} | val_loss={val_loss:.5f}"
+        )
         
         # Save checkpoint
         if epoch % config['logging']['save_interval'] == 0:
@@ -313,25 +358,26 @@ def main(args):
                 'val_loss': val_loss,
                 'config': config
             }, best_path)
-            print(f"[Best↓] Saved best checkpoint: {best_path} (val_loss={val_loss:.5f})")
+            logger.debug(f"[Best↓] Epoch {epoch} - val_loss={val_loss:.5f}")
         
         # Early stopping check
         if early_stopping(val_loss):
-            print(f"\n[Early Stopping] Training stopped at epoch {epoch}")
-            print(f"Best validation loss: {best_val_loss:.5f}")
             stopped_epoch = epoch
+            epoch_pbar.close()
+            logger.info(f"[Early Stopping] Training stopped at epoch {epoch}")
+            logger.info(f"Best validation loss: {best_val_loss:.5f}")
             break
     
-    print("\n" + "="*60)
-    print("STEP 5: Final evaluation on validation set")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 5: Final evaluation on validation set")
+    logger.info("="*60)
     
     # Load best model
     checkpoint = torch.load(best_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     # Perform full inference
-    print("Performing tiled inference...")
+    logger.info("Performing tiled inference...")
     full_pred = predict_full_image(
         model, img_in,
         config['training']['patch_size'],
@@ -351,15 +397,15 @@ def main(args):
         img_out, full_pred, val_mask, protein_names
     )
     
-    # Print summary
-    print_correlation_summary(
-        spearman_rhos, pearson_rhos, protein_names,
-        mean_spearman, mean_pearson
-    )
+    logger.info("="*60)
+    logger.info("Correlation Summary")
+    logger.info("="*60)
+    logger.info(f"Mean Spearman: {mean_spearman:.4f}")
+    logger.info(f"Mean Pearson: {mean_pearson:.4f}")
     
-    print("\n" + "="*60)
-    print("STEP 6: Saving results")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 6: Saving results")
+    logger.info("="*60)
     
     # Plot and save training history
     plot_training_history(
@@ -414,7 +460,7 @@ def main(args):
     with open(metrics_path, 'w') as f:
         json.dump(metrics, f, indent=2)
     
-    print(f"Metrics saved to: {metrics_path}")
+    logger.info(f"Metrics saved to: {metrics_path}")
     
     # Save detailed protein ranking
     sorted_idx = np.argsort(-np.nan_to_num(spearman_rhos, nan=-999))
@@ -431,15 +477,15 @@ def main(args):
     with open(ranking_path, 'w') as f:
         json.dump(protein_ranking, f, indent=2)
     
-    print(f"Protein ranking saved to: {ranking_path}")
+    logger.info(f"Protein ranking saved to: {ranking_path}")
     
-    print("\n" + "="*60)
-    print("Training completed!")
-    print("="*60)
-    print(f"Results saved to: {run_dir}")
-    print(f"Best validation loss: {best_val_loss:.5f}")
-    print(f"Mean Spearman: {mean_spearman:.4f}")
-    print(f"Mean Pearson: {mean_pearson:.4f}")
+    logger.info("="*60)
+    logger.info("Training completed!")
+    logger.info("="*60)
+    logger.info(f"Results saved to: {run_dir}")
+    logger.info(f"Best validation loss: {best_val_loss:.5f}")
+    logger.info(f"Mean Spearman: {mean_spearman:.4f}")
+    logger.info(f"Mean Pearson: {mean_pearson:.4f}")
 
 
 if __name__ == "__main__":

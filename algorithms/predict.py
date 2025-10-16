@@ -2,6 +2,8 @@
 """Prediction script for UNet RNA to Protein prediction."""
 
 import argparse
+import logging
+import os
 import torch
 import numpy as np
 
@@ -15,18 +17,60 @@ from utils.preprocessing import (
 from utils.metrics import predict_full_image
 
 
+def setup_logging(output_file=None, log_level=logging.INFO):
+    """Setup logging to both file and console."""
+    # Create logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(log_level)
+    
+    # Clear existing handlers
+    logger.handlers.clear()
+    
+    # Create formatters
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # File handler
+    if output_file:
+        log_dir = os.path.dirname(output_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        fh = logging.FileHandler(output_file)
+        fh.setLevel(log_level)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(log_level)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    
+    return logger
+
+
 def main(args):
+    # Setup logging
+    log_file = None
+    if args.output:
+        output_dir = os.path.dirname(args.output) or "."
+        log_file = os.path.join(output_dir, "prediction.log")
+    
+    logger = setup_logging(log_file)
+    
     # Load checkpoint
-    print("Loading checkpoint...")
+    logger.info("Loading checkpoint...")
     checkpoint = torch.load(args.checkpoint, map_location='cpu')
     config = checkpoint['config']
     
     device = config['device']
-    print(f"Using device: {device}")
+    logger.info(f"Using device: {device}")
     
-    print("\n" + "="*60)
-    print("STEP 1: Loading and preprocessing data")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 1: Loading and preprocessing data")
+    logger.info("="*60)
     
     # Load data
     rna_proc, pro_proc, rna, pro = load_and_preprocess_data(config)
@@ -53,9 +97,9 @@ def main(args):
         config['data']['grid_w']
     )
     
-    print("\n" + "="*60)
-    print("STEP 2: Loading model")
-    print("="*60)
+    logger.info("="*60)
+    logger.info("STEP 2: Loading model")
+    logger.info("="*60)
     
     C_in = Z_all.shape[1]
     C_out = pro_proc.X.shape[1]
@@ -66,49 +110,4 @@ def main(args):
         base=config['model']['base_channels']
     ).to(device)
     
-    model.load_state_dict(checkpoint['model_state_dict'])
-    print(f"Loaded model from epoch {checkpoint['epoch']}")
-    
-    print("\n" + "="*60)
-    print("STEP 3: Performing tiled inference")
-    print("="*60)
-    
-    full_pred = predict_full_image(
-        model, img_in,
-        config['training']['patch_size'],
-        config['training']['stride'],
-        device
-    )
-    
-    print(f"Prediction shape: {full_pred.shape}")
-    
-    # Save predictions
-    np.save(args.output, full_pred)
-    print(f"\nPredictions saved to {args.output}")
-    
-    # Optionally save as spot-level predictions
-    if args.save_spots:
-        # Extract predictions for each spot
-        spot_predictions = []
-        for i in range(len(rows)):
-            r, c = rows[i], cols[i]
-            spot_predictions.append(full_pred[r, c, :])
-        
-        spot_predictions = np.array(spot_predictions)
-        spots_path = args.output.replace('.npy', '_spots.npy')
-        np.save(spots_path, spot_predictions)
-        print(f"Spot-level predictions saved to {spots_path}")
-        print(f"Shape: {spot_predictions.shape}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Predict with UNet for RNA to Protein")
-    parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Path to checkpoint file")
-    parser.add_argument("--output", type=str, default="predictions.npy",
-                        help="Path to save predictions (numpy array)")
-    parser.add_argument("--save_spots", action="store_true",
-                        help="Also save spot-level predictions")
-    args = parser.parse_args()
-    
-    main(args)
+    model.load_state
