@@ -1,0 +1,56 @@
+# Data Configuration
+data:
+  rna_h5ad: "train_rna.h5ad"
+  pro_h5ad: "train_pro.h5ad"
+  grid_h: 419
+  grid_w: 419
+  split_ratio: 0.9  # 90% train, 10% val
+
+# Preprocessing
+preprocessing:
+  k_pca: 128  # Dimensionality reduction for RNA
+  normalize_rna: false  # Set to true to enable normalize_total + log1p
+  zscore_protein: false  # Set to true to enable log1p + z-score
+
+# Model Architecture
+model:
+  base_channels: 48  # Base number of channels in U-Net
+  
+# Training Configuration
+training:
+  patch_size: 32
+  stride: 16  # Overlap for patch extraction
+  batch_size: 8
+  epochs: 10
+  learning_rate: 0.002
+  weight_decay: 0.0001
+  num_workers: 4
+  pin_memory: true
+  
+  # Early stopping parameters
+  early_stopping_patience: 10      # Stop if no improvement for N epochs
+  early_stopping_min_delta: 1e-5   # Minimum improvement to count as progress
+  
+# Loss function
+loss:
+  type: "mse"  # Options: "mse", "huber"
+  huber_delta: 1.0  # Only used if type is "huber"
+
+# Scheduler
+scheduler:
+  type: "cosine"  # Options: "cosine", "step", "none"
+  
+# Device
+device: "cuda"  # Options: "cuda", "cpu"
+
+# Paths
+paths:
+  save_dir: "checkpoints"
+  
+# Random seed
+random_seed: 42
+
+# Logging
+logging:
+  log_interval: 10  # Log every N batches
+  save_interval: 1  # Save checkpoint every N epochs
