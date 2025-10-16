@@ -22,8 +22,8 @@ This project implements a U-Net model to predict protein spatial distribution fr
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/UNet_RNA_Protein.git
-cd UNet_RNA_Protein
+git clone https://github.com/shellyleee/stpoc.git
+cd stpoc
 
 # Install dependencies
 pip install -r requirements.txt
@@ -127,11 +127,11 @@ If you use this code, please cite:
 
 ```bibtex
 @misc{unet_rna_protein,
-  author = {Your Name},
+  author = {Yixuan Li},
   title = {UNet for RNA to Protein Spatial Prediction},
   year = {2025},
   publisher = {GitHub},
-  url = {https://github.com/yourusername/UNet_RNA_Protein}
+  url = {https://github.com/shellyleee/stpoc}
 }
 ```
 
