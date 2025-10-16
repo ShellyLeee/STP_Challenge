@@ -1,13 +1,16 @@
 #!/bin/bash
 
 # Training script for UNet RNA to Protein prediction
-# Usage: bash scripts/train.sh [run_name] [config_path]
+# Usage: bash scripts/train.sh [run_name] [config_path] [gpu_id]
+# Example: bash scripts/train.sh my_run configs/config.yaml 0
+#          bash scripts/train.sh my_run configs/config.yaml 1
 
 set -e  # Exit on error
 
 # Default values
 CONFIG_PATH="${2:-configs/config.yaml}"
 RUN_NAME="${1:-}"
+GPU_ID="${3:-0}"  # Default to GPU 0
 
 # Colors for output
 RED='\033[0;31m'
@@ -26,6 +29,7 @@ if [ ! -f "$CONFIG_PATH" ]; then
 fi
 
 echo -e "${YELLOW}Config file: $CONFIG_PATH${NC}"
+echo -e "${YELLOW}GPU ID: $GPU_ID${NC}"
 
 # Check if data files exist
 if [ ! -f "train_rna.h5ad" ] || [ ! -f "train_pro.h5ad" ]; then
@@ -38,10 +42,9 @@ fi
 mkdir -p results
 mkdir -p checkpoints
 
-# Set CUDA device if specified
-if [ ! -z "$CUDA_VISIBLE_DEVICES" ]; then
-    echo -e "${YELLOW}Using GPU: $CUDA_VISIBLE_DEVICES${NC}"
-fi
+# Set CUDA device
+export CUDA_VISIBLE_DEVICES="$GPU_ID"
+echo -e "${YELLOW}Using GPU: $CUDA_VISIBLE_DEVICES${NC}"
 
 # Run training
 if [ -z "$RUN_NAME" ]; then
@@ -57,7 +60,7 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Training completed successfully!${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${YELLOW}Check results in: results/${RUN_NAME:-[auto-generated]}/${NC}"
+    echo -e "${YELLOW}Check results in: results/${RUN_NAME:-[auto-generated]}/$(NC}"
 else
     echo -e "${RED}========================================${NC}"
     echo -e "${RED}Training failed!${NC}"

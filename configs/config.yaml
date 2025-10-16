@@ -41,7 +41,7 @@ scheduler:
   type: "cosine"  # Options: "cosine", "step", "none"
   
 # Device
-device: "cuda"  # Options: "cuda", "cpu"
+device: "cuda:0"  # Options: "cuda:0" (will use GPU specified in train.sh), or "cpu"
 
 # Paths
 paths:
