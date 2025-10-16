@@ -60,7 +60,7 @@ if [ $? -eq 0 ]; then
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Training completed successfully!${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${YELLOW}Check results in: results/${RUN_NAME:-[auto-generated]}/$(NC}"
+    echo -e "${YELLOW}Check results in: results/${RUN_NAME:-[auto-generated]}/${NC}"
 else
     echo -e "${RED}========================================${NC}"
     echo -e "${RED}Training failed!${NC}"

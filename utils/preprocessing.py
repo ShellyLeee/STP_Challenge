@@ -132,7 +132,8 @@ def apply_dimensionality_reduction(
     log("Fitting SVD model (this may take a while)...")
     
     # Fit SVD only on training data
-    svd = TruncatedSVD(n_components=k_pca, random_state=random_seed, n_iter=100)
+    # svd = TruncatedSVD(n_components=k_pca, random_state=random_seed, n_iter=100)
+    svd = TruncatedSVD(n_components=k_pca, random_state=random_seed)
     svd.fit(rna_train)
     
     log(f"SVD fitting completed")
