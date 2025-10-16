@@ -66,25 +66,26 @@ training:
 ### 2. Training
 
 ```bash
-python scripts/train.py --config configs/config.yaml
+bash scripts/train.sh
 ```
 
 ### 3. Evaluation
 
 ```bash
-python scripts/evaluate.py --checkpoint checkpoints/unet_best_mse.pt
+bash scripts/evaluate.sh
 ```
 
 ### 4. Prediction
 
 ```bash
-python scripts/predict.py --checkpoint checkpoints/unet_best_mse.pt --output predictions.npy
+bash scripts/predict.sh
 ```
 
 ## Project Structure
 
 ```
 UNet_RNA_Protein/
+├── algorithms/       # Training and evaluation algorithms
 ├── configs/          # Configuration files
 ├── data/             # Dataset classes and loaders
 ├── models/           # Model architectures and losses
