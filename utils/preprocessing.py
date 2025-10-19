@@ -232,50 +232,62 @@ def apply_dimensionality_reduction(
     cutoff: int,
     k_pca: int,
     random_seed: int = 42,
-    logger=None
+    logger=None,
+    fit_data: sc.AnnData = None,
+    fit_rows: np.ndarray = None,
+    fit_cutoff: int = None
 ) -> np.ndarray:
     """
     Apply TruncatedSVD (PCA for sparse matrices) to RNA data.
     Fit only on training data to avoid leakage.
     
     Args:
-        rna_proc: Preprocessed RNA data
-        rows: Array row positions
-        cutoff: Row cutoff for train/val split
+        rna_proc: Preprocessed RNA data to transform
+        rows: Array row positions for rna_proc
+        cutoff: Row cutoff for train/val split (for rna_proc)
         k_pca: Number of components to keep
         random_seed: Random seed for reproducibility
         logger: Logger instance (optional)
+        fit_data: Separate data to fit SVD on (e.g., training data). If None, uses rna_proc
+        fit_rows: Array row positions for fit_data
+        fit_cutoff: Row cutoff for fit_data
         
     Returns:
-        Reduced RNA data for all spots (n_spots, k_pca)
+        Reduced data for all spots in rna_proc (n_spots, k_pca)
     """
     log = logger.info if logger else print
     
-    log(f"Starting dimensionality reduction (SVD) on RNA data...")
-    log(f"Original RNA dimensions: {rna_proc.X.shape}")
+    log(f"Starting dimensionality reduction (SVD)...")
+    log(f"Data to transform dimensions: {rna_proc.X.shape}")
     log(f"Target PCA components: {k_pca}")
     
-    rna_X = rna_proc.X
-    train_mask = rows < cutoff
-    rna_train = rna_X[train_mask]
+    # Use fit_data if provided, otherwise use rna_proc
+    if fit_data is not None:
+        log("Using separate training data to fit SVD model")
+        rna_X_fit = fit_data.X
+        fit_mask = fit_rows < fit_cutoff
+        rna_train = rna_X_fit[fit_mask]
+        log(f"Training data subset for SVD: {rna_train.shape[0]} spots")
+    else:
+        log("Using training subset of provided data to fit SVD model")
+        rna_X_fit = rna_proc.X
+        fit_mask = rows < cutoff
+        rna_train = rna_X_fit[fit_mask]
+        log(f"Training data subset for SVD: {rna_train.shape[0]} spots")
     
-    log(f"Training data subset: {rna_train.shape[0]} spots")
     log("Fitting SVD model (this may take a while)...")
-    
-    # Fit SVD only on training data
-    # svd = TruncatedSVD(n_components=k_pca, random_state=random_seed, n_iter=100)
     svd = TruncatedSVD(n_components=k_pca, random_state=random_seed)
     svd.fit(rna_train)
     
     log(f"SVD fitting completed")
     log(f"Explained variance ratio: {svd.explained_variance_ratio_.sum():.4f}")
     
-    # Transform all data with progress bar
-    log("Transforming all data with fitted SVD model...")
-    Z_all = svd.transform(rna_X)
+    # Transform the data to predict
+    log("Transforming data with fitted SVD model...")
+    Z_all = svd.transform(rna_proc.X)
     Z_all = np.asarray(Z_all, dtype=np.float32)
     
-    log(f"Dimensionality reduction completed: {rna_X.shape[1]} → {k_pca} dimensions")
+    log(f"Dimensionality reduction completed: {rna_proc.X.shape[1]} → {k_pca} dimensions")
     log(f"Output shape: {Z_all.shape}")
     
     return Z_all
