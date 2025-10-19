@@ -8,9 +8,17 @@ data:
 
 # Preprocessing
 preprocessing:
-  k_pca: 128  # Dimensionality reduction for RNA
-  normalize_rna: false  # Set to true to enable normalize_total + log1p
-  zscore_protein: false  # Set to true to enable log1p + z-score
+  k_pca: 256  # Dimensionality reduction for RNA
+  
+  # QC filtering
+  apply_qc_filtering: true  # Set to true to enable QC filtering
+  qc_params:
+    min_genes: 200          # Minimum genes detected per cell
+    min_counts: 500         # Minimum UMI counts per cell (can try 1000)
+    max_pct_mt: 15.0        # Maximum mitochondrial percentage
+
+  normalize_rna: true  # Set to true to enable enable preprocessing of rna: normalize_total + log1p
+  zscore_protein: true  # Set to true to enable preprocessing the protein: log1p + z-score
 
 # Model Architecture
 model:
@@ -18,10 +26,10 @@ model:
   
 # Training Configuration
 training:
-  patch_size: 32
-  stride: 16  # Overlap for patch extraction
+  patch_size: 16
+  stride: 4  # Overlap for patch extraction
   batch_size: 8
-  epochs: 10
+  epochs: 20
   learning_rate: 0.002
   weight_decay: 0.0001
   num_workers: 4

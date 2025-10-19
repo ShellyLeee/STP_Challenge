@@ -29,6 +29,45 @@ def load_and_preprocess_data(config: dict, logger=None) -> Tuple:
     pro = sc.read_h5ad(config['data']['pro_h5ad'])
     log(f"Protein data: {pro}")
     
+    # Verify that RNA and Protein have the same cells in the same order
+    if not (rna.obs_names == pro.obs_names).all():
+        log("WARNING: RNA and Protein cell names don't match! Attempting to synchronize...")
+        # Find common cells
+        common_cells = rna.obs_names.intersection(pro.obs_names)
+        rna = rna[common_cells].copy()
+        pro = pro[common_cells].copy()
+        log(f"After synchronization: {len(common_cells)} common cells retained")
+    
+    # Apply QC filtering if enabled in config
+    if config['preprocessing'].get('apply_qc_filtering', False):
+        log("\n" + "="*60)
+        log("APPLYING QUALITY CONTROL FILTERING")
+        log("="*60)
+        
+        qc_params = config['preprocessing'].get('qc_params', {})
+        min_genes = qc_params.get('min_genes', 200)
+        min_counts = qc_params.get('min_counts', 500)
+        max_pct_mt = qc_params.get('max_pct_mt', 15.0)
+        
+        # Apply QC filtering to RNA
+        rna_before = rna.n_obs
+        rna = apply_qc_filtering(
+            rna,
+            min_genes=min_genes,
+            min_counts=min_counts,
+            max_pct_mt=max_pct_mt,
+            logger=logger
+        )
+        
+        # Synchronously filter Protein data with the same cells
+        log("\nSynchronizing Protein data with filtered RNA cells...")
+        cells_to_keep = rna.obs_names
+        pro = pro[cells_to_keep].copy()
+        
+        log(f"Protein cells after filtering: {pro.n_obs}")
+        assert rna.n_obs == pro.n_obs, "RNA and Protein cell counts don't match after filtering!"
+        log("✓ RNA and Protein cell counts synchronized")
+    
     # Make copies for processing
     rna_proc = rna.copy()
     pro_proc = pro.copy()
@@ -49,6 +88,98 @@ def load_and_preprocess_data(config: dict, logger=None) -> Tuple:
         pro_proc.X = pro_X
     
     return rna_proc, pro_proc, rna, pro
+
+
+def apply_qc_filtering(
+    rna: sc.AnnData,
+    min_genes: int = 200,
+    min_counts: int = 500,
+    max_pct_mt: float = 15.0,
+    logger=None
+) -> sc.AnnData:
+    """
+    Apply quality control filtering to RNA data.
+    
+    QC steps:
+    1. Mark mitochondrial genes (MT-*)
+    2. Mark ribosomal genes (RPS*, RPL*)
+    3. Calculate QC metrics
+    4. Filter cells based on thresholds
+    
+    Args:
+        rna: RNA AnnData object
+        min_genes: Minimum number of genes detected per cell (default: 200)
+        min_counts: Minimum UMI counts per cell (default: 500)
+        max_pct_mt: Maximum percentage of mitochondrial counts per cell (default: 15%)
+        logger: Logger instance (optional)
+        
+    Returns:
+        Filtered RNA AnnData object
+    """
+    log = logger.info if logger else print
+    
+    n_cells_before = rna.n_obs
+    log("="*60)
+    log("QC FILTERING")
+    log("="*60)
+    log(f"Starting cell count: {n_cells_before:,}")
+    
+    # Make a copy to avoid modifying original
+    rna = rna.copy()
+    
+    # Step 1: Mark mitochondrial and ribosomal genes
+    log("\nStep 1: Marking mitochondrial and ribosomal genes...")
+    rna.var['mt'] = rna.var_names.str.upper().str.startswith('MT-')
+    rna.var['ribo'] = rna.var_names.str.upper().str.startswith(("RPS", "RPL"))
+    
+    n_mt_genes = rna.var['mt'].sum()
+    n_ribo_genes = rna.var['ribo'].sum()
+    log(f"  Mitochondrial genes found: {n_mt_genes}")
+    log(f"  Ribosomal genes found: {n_ribo_genes}")
+    
+    # Step 2: Calculate QC metrics
+    log("\nStep 2: Calculating QC metrics...")
+    sc.pp.calculate_qc_metrics(
+        rna, 
+        qc_vars=['mt', 'ribo'], 
+        percent_top=None, 
+        log1p=False, 
+        inplace=True
+    )
+    log("  QC metrics calculated: n_genes_by_counts, total_counts, pct_counts_mt, pct_counts_ribo")
+    
+    # Step 3: Apply filters
+    log("\nStep 3: Applying QC filters...")
+    log(f"  Filter 1: n_genes_by_counts > {min_genes}")
+    n_after_filter1 = (rna.obs['n_genes_by_counts'] > min_genes).sum()
+    log(f"    Cells passing: {n_after_filter1:,} / {rna.n_obs:,}")
+    rna = rna[rna.obs['n_genes_by_counts'] > min_genes]
+    
+    log(f"  Filter 2: total_counts >= {min_counts}")
+    n_after_filter2 = (rna.obs['total_counts'] >= min_counts).sum()
+    log(f"    Cells passing: {n_after_filter2:,} / {rna.n_obs:,}")
+    rna = rna[rna.obs['total_counts'] >= min_counts]
+    
+    log(f"  Filter 3: pct_counts_mt < {max_pct_mt}%")
+    n_after_filter3 = (rna.obs['pct_counts_mt'] < max_pct_mt).sum()
+    log(f"    Cells passing: {n_after_filter3:,} / {rna.n_obs:,}")
+    rna = rna[rna.obs['pct_counts_mt'] < max_pct_mt]
+    
+    # Summary
+    n_cells_after = rna.n_obs
+    n_cells_removed = n_cells_before - n_cells_after
+    pct_retained = (n_cells_after / n_cells_before) * 100
+    
+    log("\n" + "="*60)
+    log("QC FILTERING SUMMARY")
+    log("="*60)
+    log(f"Cells before QC: {n_cells_before:,}")
+    log(f"Cells after QC:  {n_cells_after:,}")
+    log(f"Cells removed:   {n_cells_removed:,} ({100-pct_retained:.1f}%)")
+    log(f"Cells retained:  {pct_retained:.1f}%")
+    log("="*60)
+    
+    return rna
 
 
 def create_spatial_split(
