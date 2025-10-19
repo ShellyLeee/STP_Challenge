@@ -54,8 +54,13 @@ fi
 # Set CUDA device
 export CUDA_VISIBLE_DEVICES="$GPU_ID"
 
-# Run prediction
+# Get the script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+
+# Run prediction from project root
 echo -e "${GREEN}Starting prediction...${NC}"
+cd "$PROJECT_ROOT"
 python algorithms/predict_new_dataset.py \
     --checkpoint "$CHECKPOINT" \
     --valid_rna "$VALID_RNA" \

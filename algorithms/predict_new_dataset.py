@@ -4,10 +4,16 @@
 import argparse
 import logging
 import os
+import sys
 import torch
 import numpy as np
 import pandas as pd
 import scanpy as sc
+
+# Add parent directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
 
 from models import UNet
 from utils.preprocessing import (
