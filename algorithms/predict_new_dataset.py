@@ -219,6 +219,48 @@ def main(args):
     logger.info(f"Extracted spot-level predictions: {spot_predictions.shape}")
     
     logger.info("="*60)
+    logger.info("STEP 9.5: Reverse preprocessing transformations")
+    logger.info("="*60)
+    
+    # Check if protein preprocessing was applied
+    if config['preprocessing'].get('zscore_protein', False):
+        logger.info("Detected protein preprocessing (log1p + z-score) in config")
+        logger.info("Loading training protein data to compute scaler parameters...")
+        
+        train_pro = sc.read_h5ad(config['data']['pro_h5ad'])
+        pro_X_raw = np.asarray(train_pro.X)
+        
+        # Apply same preprocessing to raw data to get mean/std
+        pro_X_processed = np.log1p(pro_X_raw)
+        
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler(with_mean=True, with_std=True)
+        scaler.fit(pro_X_processed)
+        
+        logger.info(f"Scaler mean: {scaler.mean_[:5]}...")
+        logger.info(f"Scaler std: {scaler.scale_[:5]}...")
+        
+        # Step 1: Reverse z-score normalization
+        # z_scored = (x - mean) / std  =>  x = z_scored * std + mean
+        logger.info("Step 1: Reversing z-score normalization...")
+        spot_predictions_log1p = spot_predictions * scaler.scale_ + scaler.mean_
+        
+        # Step 2: Reverse log1p transformation
+        # log1p(x) = log(1 + x)  =>  x = exp(log1p(x)) - 1
+        logger.info("Step 2: Reversing log1p transformation...")
+        spot_predictions_original = np.exp(spot_predictions_log1p) - 1
+        
+        # Replace any negative values with 0 (due to numerical errors)
+        spot_predictions_original = np.maximum(spot_predictions_original, 0)
+        
+        spot_predictions = spot_predictions_original
+        
+        logger.info(f"Reverse preprocessing completed")
+        logger.info(f"Original scale prediction value range: [{spot_predictions.min():.2f}, {spot_predictions.max():.2f}]")
+    else:
+        logger.info("No protein preprocessing detected in config")
+    
+    logger.info("="*60)
     logger.info("STEP 10: Creating output CSV")
     logger.info("="*60)
     
@@ -240,9 +282,20 @@ def main(args):
     # Add barcode (using spot names from valid_rna)
     df['barcode'] = valid_rna.obs_names.values
     
-    # Add spatial coordinates
-    df['pxl_row_in_fullres'] = rows * 1.0  # Scale if needed
-    df['pxl_col_in_fullres'] = cols * 1.0
+    # Add spatial coordinates from valid_rna obs data
+    if 'pxl_row_in_fullres' in valid_rna.obs.columns:
+        df['pxl_row_in_fullres'] = valid_rna.obs['pxl_row_in_fullres'].values
+        logger.info("Using pxl_row_in_fullres from valid_rna obs")
+    else:
+        df['pxl_row_in_fullres'] = rows * 1.0
+        logger.info("pxl_row_in_fullres not found in valid_rna, using array_row instead")
+    
+    if 'pxl_col_in_fullres' in valid_rna.obs.columns:
+        df['pxl_col_in_fullres'] = valid_rna.obs['pxl_col_in_fullres'].values
+        logger.info("Using pxl_col_in_fullres from valid_rna obs")
+    else:
+        df['pxl_col_in_fullres'] = cols * 1.0
+        logger.info("pxl_col_in_fullres not found in valid_rna, using array_col instead")
     
     # Add protein predictions
     for i, protein_name in enumerate(protein_names):
