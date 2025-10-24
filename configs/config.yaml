@@ -5,6 +5,7 @@ data:
   grid_h: 419
   grid_w: 419
   split_ratio: 0.9  # 90% train, 10% val
+  split_mode: "random"  # Options: "spatial", "random"
 
 # Preprocessing
 preprocessing:
@@ -14,11 +15,11 @@ preprocessing:
   apply_qc_filtering: true  # Set to true to enable QC filtering
   qc_params:
     min_genes: 200          # Minimum genes detected per cell
-    min_counts: 500         # Minimum UMI counts per cell (can try 1000)
+    min_counts: 500         # Minimum UMI counts per cell
     max_pct_mt: 15.0        # Maximum mitochondrial percentage
 
-  normalize_rna: true  # Set to true to enable enable preprocessing of rna: normalize_total + log1p
-  zscore_protein: true  # Set to true to enable preprocessing the protein: log1p + z-score
+  normalize_rna: true  # Apply normalize_total + log1p to RNA
+  zscore_protein: true  # Apply log1p + z-score to protein
 
 # Model Architecture
 model:
@@ -26,14 +27,29 @@ model:
   
 # Training Configuration
 training:
-  patch_size: 16
-  stride: 4  # Overlap for patch extraction
+  patch_size: 32
+  stride: 16  # Overlap for patch extraction
   batch_size: 8
   epochs: 20
   learning_rate: 0.002
   weight_decay: 0.0001
   num_workers: 4
   pin_memory: true
+
+  # === Patch filtering parameters (mode-dependent) ===
+  
+  # For SPATIAL mode:
+  # - min_split_ratio: minimum ratio of train/val region pixels in a patch
+  #   - 0.5 means patch must have >= 50% pixels from train/val region (original logic)
+  #   - 0.1 means patch must have >= 10% pixels from train/val region (looser)
+  #   - 1.0 means patch must be 100% pure train/val region (strictest)
+  min_split_ratio: 0.5
+  
+  # For RANDOM mode:
+  # - min_spot_ratio: minimum ratio of train/val spots among tissue pixels in patch
+  #   - 0.1 means patch must have >= 10% of its tissue spots from train/val set
+  #   - 0.5 means patch must have >= 50% of its tissue spots from train/val set
+  min_spot_ratio: 0.1
   
   # Early stopping parameters
   early_stopping_patience: 10      # Stop if no improvement for N epochs
@@ -49,7 +65,7 @@ scheduler:
   type: "cosine"  # Options: "cosine", "step", "none"
   
 # Device
-device: "cuda:0"  # Options: "cuda:0" (will use GPU specified in train.sh), or "cpu"
+device: "cuda:0"  # Options: "cuda:0", "cpu"
 
 # Paths
 paths:

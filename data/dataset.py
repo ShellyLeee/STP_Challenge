@@ -14,7 +14,10 @@ class PatchDataset(Dataset):
         mask: np.ndarray,
         patch_size: int,
         stride: int,
-        split_mask: Optional[np.ndarray] = None
+        split_mask: Optional[np.ndarray] = None,
+        split_mode: str = "spatial",
+        min_split_ratio: float = 0.5,
+        min_spot_ratio: float = 0.1
     ):
         """
         Args:
@@ -22,31 +25,57 @@ class PatchDataset(Dataset):
             img_out: Output Protein data (H, W, C_out)
             mask: Tissue mask (H, W)
             patch_size: Size of patches to extract
-            stride: Stride for patch extraction (overlap = patch_size - stride)
+            stride: Stride for patch extraction
             split_mask: Mask for train/val split (H, W), optional
+            split_mode: Splitting mode - "spatial" or "random"
+            min_split_ratio: Minimum ratio of split region in patch (for spatial mode)
+                           - For spatial mode: patch must have ≥ min_split_ratio of split region pixels
+                           - For random mode: not used
+            min_spot_ratio: Minimum ratio of split spots in patch (for random mode)
+                          - For random mode: patch must have ≥ min_spot_ratio of split spots
+                          - For spatial mode: not used
         """
         self.img_in = img_in
         self.img_out = img_out
         self.mask = mask
         self.patch_size = patch_size
         self.stride = stride
+        self.split_mode = split_mode
+        self.min_split_ratio = min_split_ratio
+        self.min_spot_ratio = min_spot_ratio
         self.coords = []
         
         H, W, _ = img_in.shape
         
-        # Generate patch coordinates
+        # Generate patch coordinates with appropriate filtering based on split_mode
         for y in range(0, H - patch_size + 1, stride):
             for x in range(0, W - patch_size + 1, stride):
                 submask = mask[y:y+patch_size, x:x+patch_size]
                 
-                # Skip patches with no tissue
+                # Skip patches with no tissue at all
                 if submask.sum() < 1:
                     continue
                 
-                # Filter by split mask if provided
+                # Apply split mask filtering based on mode
                 if split_mask is not None:
-                    if split_mask[y:y+patch_size, x:x+patch_size].mean() < 0.5: # keep the patch with occupied area of train/val > 50%
-                        continue
+                    if self.split_mode == "spatial":
+                        # Spatial mode: check if split region occupies >= min_split_ratio of patch
+                        split_region = split_mask[y:y+patch_size, x:x+patch_size]
+                        split_ratio = split_region.mean()
+                        if split_ratio < self.min_split_ratio:
+                            continue
+                    
+                    elif self.split_mode == "random":
+                        # Random mode: check if split spots occupy >= min_spot_ratio of tissue in patch
+                        split_region = split_mask[y:y+patch_size, x:x+patch_size]
+                        split_pixels = split_region.sum()
+                        tissue_pixels = submask.sum()
+                        if tissue_pixels > 0:
+                            spot_ratio = split_pixels / tissue_pixels
+                            if spot_ratio < self.min_spot_ratio:
+                                continue
+                        else:
+                            continue
                 
                 self.coords.append((y, x))
     
@@ -102,17 +131,39 @@ def create_dataloaders(
     num_workers = config['training']['num_workers']
     pin_memory = config['training']['pin_memory']
     
+    split_mode = config['data'].get('split_mode', 'spatial')
+    
+    # Get filtering parameters based on split mode
+    if split_mode == "spatial":
+        # Spatial mode: use min_split_ratio (what % of patch belongs to train/val region)
+        min_split_ratio = config['training'].get('min_split_ratio', 0.5)
+        min_spot_ratio = 0.0  # Not used in spatial mode
+        
+    elif split_mode == "random":
+        # Random mode: use min_spot_ratio (what % of tissue spots in patch are from train/val)
+        min_split_ratio = 0.0  # Not used in random mode
+        min_spot_ratio = config['training'].get('min_spot_ratio', 0.1)
+    
+    else:
+        raise ValueError(f"Unknown split_mode: {split_mode}")
+    
     # Create datasets
     train_ds = PatchDataset(
         img_in, img_out, mask_tissue,
         patch_size, stride,
-        split_mask=split_grid_train
+        split_mask=split_grid_train,
+        split_mode=split_mode,
+        min_split_ratio=min_split_ratio,
+        min_spot_ratio=min_spot_ratio
     )
     
     val_ds = PatchDataset(
         img_in, img_out, mask_tissue,
         patch_size, stride,
-        split_mask=split_grid_val
+        split_mask=split_grid_val,
+        split_mode=split_mode,
+        min_split_ratio=min_split_ratio,
+        min_spot_ratio=min_spot_ratio
     )
     
     # Create dataloaders

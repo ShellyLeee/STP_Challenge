@@ -3,6 +3,7 @@ import scanpy as sc
 import logging
 from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 from typing import Tuple
 from tqdm.auto import tqdm
 
@@ -187,10 +188,12 @@ def create_spatial_split(
     grid_h: int,
     grid_w: int,
     split_ratio: float = 0.9,
-    logger=None
+    logger=None,
+    split_mode: str = "spatial",
+    random_seed: int = 42
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """
-    Create spatial train/val split based on row position.
+    Create train/val split with support for multiple splitting modes.
     
     Args:
         rna: RNA AnnData object
@@ -198,6 +201,10 @@ def create_spatial_split(
         grid_w: Grid width
         split_ratio: Fraction for training (default 0.9 = 90% train, 10% val)
         logger: Logger instance (optional)
+        split_mode: Splitting mode - "spatial" or "random"
+                   - "spatial": Split by row position (original method)
+                   - "random": Random shuffle then split (like train_test_split)
+        random_seed: Random seed for reproducibility (used in "random" mode)
         
     Returns:
         rows, cols, split_grid_train, split_grid_val, cutoff
@@ -206,22 +213,60 @@ def create_spatial_split(
     
     rows = rna.obs["array_row"].to_numpy().astype(int)
     cols = rna.obs["array_col"].to_numpy().astype(int)
+    n_spots = len(rows)
     
-    # Spatial split by row position
-    cutoff = int(split_ratio * grid_h)
+    log(f"Creating train/val split (mode: '{split_mode}', ratio: {split_ratio:.1%}/{1-split_ratio:.1%})...")
     
+    # Initialize split grids
     split_grid_train = np.zeros((grid_h, grid_w), dtype=bool)
     split_grid_val = np.zeros((grid_h, grid_w), dtype=bool)
     
-    for i in range(len(rows)):
-        r, c = rows[i], cols[i]
-        if r < cutoff:
+    if split_mode == "spatial":
+        # Original spatial splitting method: split by row position
+        log("Using SPATIAL split: dividing by row position")
+        cutoff = int(split_ratio * grid_h)
+        
+        for i in range(len(rows)):
+            r, c = rows[i], cols[i]
+            if r < cutoff:
+                split_grid_train[r, c] = True
+            else:
+                split_grid_val[r, c] = True
+        
+        log(f"Spatial split cutoff row: {cutoff}")
+        log(f"Train pixels: {split_grid_train.sum()}, Val pixels: {split_grid_val.sum()}")
+        
+    elif split_mode == "random":
+        # Random shuffling method: similar to sklearn's train_test_split
+        log("Using RANDOM split: shuffling then dividing")
+        
+        indices = np.arange(n_spots)
+        train_indices, val_indices = train_test_split(
+            indices,
+            train_size=split_ratio,
+            test_size=1.0 - split_ratio,
+            random_state=random_seed,
+            shuffle=True
+        )
+        
+        # Mark training set
+        for idx in train_indices:
+            r, c = rows[idx], cols[idx]
             split_grid_train[r, c] = True
-        else:
+        
+        # Mark validation set
+        for idx in val_indices:
+            r, c = rows[idx], cols[idx]
             split_grid_val[r, c] = True
-    
-    log(f"Spatial split cutoff row: {cutoff}")
-    log(f"Train patches: {split_grid_train.sum()}, Val patches: {split_grid_val.sum()}")
+        
+        cutoff = len(train_indices)
+        log(f"Total spots: {n_spots}")
+        log(f"Train spots: {len(train_indices)} ({len(train_indices)/n_spots*100:.1f}%)")
+        log(f"Val spots:   {len(val_indices)} ({len(val_indices)/n_spots*100:.1f}%)")
+        log(f"Train pixels: {split_grid_train.sum()}, Val pixels: {split_grid_val.sum()}")
+        
+    else:
+        raise ValueError(f"Unknown split_mode: {split_mode}. Choose 'spatial' or 'random'")
     
     return rows, cols, split_grid_train, split_grid_val, cutoff
 

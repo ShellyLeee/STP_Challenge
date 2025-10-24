@@ -226,7 +226,9 @@ def main(args):
         config['data']['grid_h'],
         config['data']['grid_w'],
         config['data']['split_ratio'],
-        logger=logger
+        logger=logger,
+        split_mode=config['data'].get('split_mode', 'spatial'),  # 'spatial' or 'random'
+        random_seed=config['random_seed']
     )
     
     # Apply dimensionality reduction
